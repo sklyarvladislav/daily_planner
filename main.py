@@ -1,12 +1,16 @@
 import asyncio
 import datetime
 import gspread
+import toml
 from oauth2client.service_account import ServiceAccountCredentials
 from aiogram import Bot, Dispatcher
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
+# -------------------- Чтение конфигурации --------------------
+config = toml.load("config.toml")
+TOKEN = config["bot"]["token"]
+
 # -------------------- Настройки бота --------------------
-TOKEN = "8493460424:AAHn3RYrdevCssLtvqwU4X_XxbQ8BITZD_0"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
@@ -14,7 +18,7 @@ dp = Dispatcher()
 scope = ["https://spreadsheets.google.com/feeds",
          "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_name(
-    "dailyplanner-475406-c4c53085245d.json", scope
+    "dailyplanner.json", scope
 )
 client = gspread.authorize(creds)
 sheet = client.open_by_url(
@@ -43,7 +47,7 @@ async def start_handler(message: Message):
         return
 
     col = get_today_column()
-    tasks = sheet.col_values(col)[1:]  # пропускаем заголовок
+    tasks = sheet.col_values(col)[2:]  # пропускаем заголовок
 
     # Убираем пустые строки
     tasks = [(i + 2, task) for i, task in enumerate(tasks) if task.strip()]
@@ -80,5 +84,6 @@ async def mark_done_callback(callback: CallbackQuery):
 
 # -------------------- Запуск бота --------------------
 if __name__ == "__main__":
+    print("bot started polling")
     asyncio.run(dp.start_polling(bot))
 
