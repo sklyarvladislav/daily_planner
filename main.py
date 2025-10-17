@@ -50,7 +50,7 @@ async def start_handler(message: Message):
     tasks = sheet.col_values(col)[2:]  # пропускаем заголовок
 
     # Убираем пустые строки
-    tasks = [(i + 2, task) for i, task in enumerate(tasks) if task.strip()]
+    tasks = [(i + 3, task) for i, task in enumerate(tasks) if task.strip()]
 
     if not tasks:
         await message.answer("На сегодня задач нет 🎉")
