@@ -5,6 +5,7 @@ import toml
 from oauth2client.service_account import ServiceAccountCredentials
 from aiogram import Bot, Dispatcher
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+import pytz
 
 # -------------------- Чтение конфигурации --------------------
 config = toml.load("config.toml")
@@ -37,8 +38,32 @@ day_col = {
 }
 
 def get_today_column():
-    today = datetime.datetime.today().weekday()  # 0 = Monday
+    tz = pytz.timezone("Europe/Moscow")
+    today = datetime.datetime.now(tz).weekday()  # 0 = Monday
     return day_col[today]
+
+def get_today_tasks():
+    col = get_today_column()
+    tasks_list = []
+    rows = sheet.col_values(col)
+
+    for i, task in enumerate(rows[2:], start=3):
+        if not task.strip():
+            continue
+
+        done_value = sheet.cell(i, col+1).value
+        if done_value and done_value.lower() == "true":
+            continue
+
+        tasks_list.append((i, task))
+    
+    return tasks_list
+
+def build_keyboard(tasks):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=task, callback_data=f"done_{row}")]
+        for row, task in tasks
+    ])
 
 # -------------------- Обработчик команды /start --------------------
 @dp.message()
@@ -46,22 +71,12 @@ async def start_handler(message: Message):
     if message.text != "/start":
         return
 
-    col = get_today_column()
-    tasks = sheet.col_values(col)[2:]  # пропускаем заголовок
-
-    # Убираем пустые строки
-    tasks = [(i + 3, task) for i, task in enumerate(tasks) if task.strip()]
-
+    tasks = get_today_tasks()
     if not tasks:
         await message.answer("На сегодня задач нет 🎉")
         return
 
-    # Создаем клавиатуру
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=task, callback_data=f"done_{row_index}")]
-        for row_index, task in tasks
-    ])
-
+    keyboard = build_keyboard(tasks)
     await message.answer("Ваши задачи на сегодня:", reply_markup=keyboard)
 
 # -------------------- Обработчик нажатий на кнопки --------------------
@@ -79,11 +94,42 @@ async def mark_done_callback(callback: CallbackQuery):
     # Получаем текст задачи
     task_text = sheet.cell(row, col).value
 
-    await callback.answer("Задача выполнена ✅")
-    await bot.send_message(callback.from_user.id, f"✅ Задача выполнена: {task_text}")
+    await callback.answer("Задача выполнена ✅", show_alert=True)
+
+    updated_tasks = [(r, t) for r, t in get_today_tasks() if r != row]
+
+    if not updated_tasks:
+        await callback.message.edit_text("Все задачи выполнены")
+        return
+
+    new_keyboard = build_keyboard(updated_tasks)
+    await callback.message.edit_text("Ваши задачи на сегодня:", reply_markup=new_keyboard)
+
+
+async def daily_task_sender():
+    while True:
+        now = datetime.datetime.now(pytz.timezone("Europe/Moscow"))
+        target = now.replace(hour=2, minute=5, second=0, microsecond=0)
+
+        if now>target:
+            target += datetime.timedelta(days=1)
+
+        wait_seconds = (target - now).total_seconds()
+        await asyncio.sleep(wait_seconds)
+
+        user_id = config["bot"]["owner_id"]
+        tasks = get_today_tasks()
+        if not tasks:
+            await bot.send_message(user_id, "На сегодня задач нет.")
+        else:
+            keyboard = build_keyboard(tasks)
+            await bot.send_message(user_id, "Ваши задачи на сегодня", reply_markup=keyboard)
+
+async def main():
+    print("Bot started polling")
+    asyncio.create_task(daily_task_sender())
+    await dp.start_polling(bot)
 
 # -------------------- Запуск бота --------------------
 if __name__ == "__main__":
-    print("bot started polling")
-    asyncio.run(dp.start_polling(bot))
-
+    asyncio.run(main())
